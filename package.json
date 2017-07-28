@@ -1,0 +1,31 @@
+{
+  "name": "liveagent-sdk",
+  "version": "0.0.1",
+  "description": "Node.js SDK for Salesforce Live Agent",
+  "main": "dist/index.js",
+  "types": "types/index.d.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "gulp",
+    "start": "node dist/index"
+  },
+  "author": "augustine.x.nguyen",
+  "license": "ISC",
+  "devDependencies": {
+    "del": "^3.0.0",
+    "gulp": "^3.9.1",
+    "gulp-tslint": "^8.1.1",
+    "gulp-typescript": "^3.2.1",
+    "merge2": "^1.1.0",
+    "tsc": "^1.20150623.0",
+    "tslint": "^5.5.0",
+    "typescript": "^2.4.2",
+    "typescript-eslint-parser": "^4.0.0"
+  },
+  "dependencies": {
+    "@types/node": "^8.0.16",
+    "@types/request-promise-native": "^1.0.6",
+    "request": "^2.81.0",
+    "request-promise-native": "^1.0.4"
+  }
+}
