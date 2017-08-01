@@ -154,7 +154,7 @@ export default class LAClient {
         });
     }
 
-    public informEnd(header: LARequest.Header, endReason: string): Promise<any> {
+    public informEnd(header: LARequest.Header, sequence: number): Promise<any> {
         const options = {
             uri: this.url(path.chatEnd),
             method: "POST",
@@ -162,10 +162,10 @@ export default class LAClient {
                 "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
                 "X-LIVEAGENT-AFFINITY": header.affinity || "null",
                 "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-                "X-LIVEAGENT-SEQUENCE": header.sequence,
+                "X-LIVEAGENT-SEQUENCE": sequence || 0,
             },
             body: {
-                reason: endReason,
+                reason: "client",
             },
             json: true,
             proxy: this.config.proxy,
