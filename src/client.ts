@@ -1,319 +1,207 @@
-import {execute} from "./consumer";
-import {InvalidConfig, RequestError} from "./exception";
-import * as path from "./path";
-import * as util from "./util";
+import * as logger from "winston";
+import API from "./api";
+import {ClientError} from "./exception";
+import {generateId} from "./util";
 
-export default class LAClient {
-    public config: LAConfig.Config;
+export default class Client {
+    public id: string;
+    public sessionInfo: any;
+    private clientInfo: any;
+    private api: API;
 
-    constructor(config: LAConfig.Config) {
-        const msg = "must not empty!!";
-        if (!config.endpointUrl) {
-            throw new InvalidConfig("endpointUrl", msg);
+    private isAbortedMsgLoop: boolean;
+    private isChatEstablished: boolean;
+    private ack: number;
+    private sequence: number;
+    private txtHandler: (txt: string) => void;
+    private stopHandler: () => void;
+
+    constructor(config: any | API, clientInfo?: any) {
+        if (config instanceof API) {
+            this.api = config;
+        } else {
+            this.api = new API(config);
         }
-        if (!config.organizationId) {
-            throw new InvalidConfig("organizationId", msg);
+        this.id = generateId();
+        logger.info("create a client with id = [%s]", this.id);
+        this.clientInfo = {
+            name: clientInfo.name || this.id,
+            language: clientInfo.language || "en_US",
+            screenResolution: clientInfo.screenResolution || "0x0",
+            visitorName: clientInfo.visitorName || "nodejs-client",
+        };
+        this.ack = -1;
+        this.sequence = 0;
+        this.isAbortedMsgLoop = false;
+        this.isChatEstablished = false;
+    }
+
+    public start = (txtHandler: (txt: string) => void): void => {
+        logger.info("connecting...");
+        this.txtHandler = txtHandler;
+        // - check avalability.
+        this.api.availability()
+        .then(this.availabilityHandler)
+        .then(this.sessionHandler)
+        .then(this.chasitorInitHandler)
+        .catch(this.exceptionHandler);
+    }
+
+    public stop = (stopHandler: () => void): void => {
+        this.stopHandler = stopHandler;
+        this.isAbortedMsgLoop = true;
+    }
+
+    public send = (msg: string): boolean => {
+        if (this.isChatEstablished) {
+            this.api.chatMessage(this.sessionInfo, ++this.sequence, {text: msg})
+            .catch((err) => {
+                logger.error("send message failed. ", err);
+                throw err;
+            });
         }
-        if (!config.deploymentId) {
-            throw new InvalidConfig("deploymentId", msg);
+        return this.isChatEstablished;
+    }
+
+    private availabilityHandler = (res: any): Promise<any> => {
+        const isOnline = res.messages[0].message.results[0].isAvailable || false;
+        if (!isOnline) {
+            logger.info("the agent is offline.");
+            throw new ClientError("the agent is offline.");
         }
-        if (!config.buttonId) {
-            throw new InvalidConfig("buttonId", msg);
+        logger.info("the agent is online.");
+        return this.api.createSession();
+    }
+    private sessionHandler = (sessionId: any): Promise<any> => {
+        // - check parameters.
+        if (!sessionId) {
+            logger.info("establish a connection failed.");
+            throw new ClientError("establish a connection failed.");
         }
-        if (!config.version) {
-            throw new InvalidConfig("version", msg);
+        logger.info("establish a connection successfully.");
+        // - assign the session info of this client.
+        this.sessionInfo = {
+            affinity: sessionId.affinityToken,
+            sessionKey: sessionId.key,
+            sessionId: sessionId.id,
+            timeout: sessionId.clientPollTimeout,
+        };
+        // - the initial payload request.
+        const payload: any = {
+            organizationId: this.api.config.organizationId,
+            deploymentId: this.api.config.deploymentId,
+            buttonId: this.api.config.buttonId,
+            sessionId: this.sessionInfo.sessionId,
+            userAgent: this.clientInfo.name,
+            language: this.clientInfo.language,
+            screenResolution: this.clientInfo.screenResolution,
+            visitorName: this.clientInfo.visitorName,
+            prechatDetails: [],
+            prechatEntities: [],
+            buttonOverrides: [],
+            receiveQueueUpdates: false,
+            isPost: true,
+        };
+        // - call initial
+        return this.api.chasitorInit(this.sessionInfo, ++this.sequence, payload);
+    }
+
+    private chasitorInitHandler = (res: any): void => {
+        const isSuccess = res && res === "OK";
+        if (!isSuccess) {
+            logger.info("create a visitor chat session failed.");
+            throw new ClientError("create a visitor chat session failed.");
         }
-        this.config = config;
+        logger.info("create a visitor chat session successfully.");
+        // - call polling loop
+        this.pollingLoop();
     }
 
-    public establish(): Promise<any> {
-        const options = {
-            uri: this.url(path.createSession),
-            qs: {
-                "SessionId.ClientType": "chasitor",
-            },
-            headers: {
-                "X-LIVEAGENT-AFFINITY": "null",
-                "X-LIVEAGENT-API-VERSION": this.config.version,
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return this.execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public initial(header: LARequest.Header, payload: LARequest.ChasitorInit): Promise<boolean> {
-        const options = {
-            uri: this.url(path.chasitorInit),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-                "X-LIVEAGENT-SEQUENCE": header.sequence,
-            },
-            body: payload,
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options)
-        .then((res) => {
-            return res && res === "OK";
-        }).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public resync(header: LARequest.Header): Promise<any> {
-        const options = {
-            uri: this.url(path.resyncSession) + "/" + header.sessionId,
-            headers: {
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public resyncState(header: LARequest.Header, payload: LARequest.ChasitorResyncState): Promise<any> {
-        const options = {
-            uri: this.url(path.resyncSessionState),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-            },
-            body: payload,
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public informNotTyping(header: LARequest.Header): Promise<any> {
-        const options = {
-            uri: this.url(path.chasitorNotTyping),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-                "X-LIVEAGENT-SEQUENCE": header.sequence,
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public sneakPeek(header: LARequest.Header, payload: LARequest.ChasitorSneakPeek): Promise<any> {
-        const options = {
-            uri: this.url(path.chasitorSneakPeek),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-                "X-LIVEAGENT-SEQUENCE": header.sequence,
-            },
-            body: payload,
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public informTyping(header: LARequest.Header): Promise<any> {
-        const options = {
-            uri: this.url(path.chasitorTyping),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-                "X-LIVEAGENT-SEQUENCE": header.sequence,
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public informEnd(header: LARequest.Header, sequence: number): Promise<any> {
-        const options = {
-            uri: this.url(path.chatEnd),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-                "X-LIVEAGENT-SEQUENCE": sequence || 0,
-            },
-            body: {
-                reason: "client",
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public informMessage(header: LARequest.Header, cmessage: LARequest.ChatMessage): Promise<any> {
-        const options = {
-            uri: this.url(path.chatMessage),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-                "X-LIVEAGENT-SEQUENCE": header.sequence,
-            },
-            body: cmessage,
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public informCustomEvent(header: LARequest.Header, cevent: LARequest.CustomEvent): Promise<any> {
-        const options = {
-            uri: this.url(path.customEvent),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-                "X-LIVEAGENT-SEQUENCE": header.sequence,
-            },
-            body: cevent,
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public getMessages(header: LARequest.Header, ackNum: string): Promise<any> {
-        const options = {
-            uri: this.url(path.messages),
-            qs: {
-                ack: ackNum,
-            },
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version || header.version,
-                "X-LIVEAGENT-AFFINITY": header.affinity || "null",
-                "X-LIVEAGENT-SESSION-KEY": header.sessionKey,
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public getSetting(): Promise<any> {
-        const options = {
-            uri: this.url(path.settings),
-            qs: {
-                "org_id": this.config.organizationId,
-                "deployment_id": this.config.deploymentId,
-                "Settings.buttonIds": this.config.buttonId,
-            },
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version,
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).then((res) => {
-            return res.messages[0].message || "";
+    private pollingLoop = (): void => {
+        this.api.messages(this.sessionInfo, this.ack)
+        .then((msg) => {
+            this.messageHandler(msg);
+            if (!this.isAbortedMsgLoop) {
+                this.pollingLoop();
+            } else {
+                // - FIXME: cancel message request first.
+                let endPromise: Promise<any>;
+                if (this.isChatEstablished) {
+                    endPromise = this.api.chatEnd(this.sessionInfo, ++this.sequence);
+                } else {
+                    endPromise = this.api.chatCancel(this.sessionInfo, ++this.sequence);
+                }
+                if (endPromise) {
+                    endPromise.then((res) => {
+                        this.api.deleteSession(this.sessionInfo).then(this.stopHandler);
+                    });
+                }
+            }
         })
         .catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
+            logger.error("get messages failed, ack = %d", this.ack);
         });
     }
 
-    public getStatus(): Promise<boolean> {
-        const options = {
-            uri: this.url(path.availability),
-            qs: {
-                "org_id": this.config.organizationId,
-                "deployment_id": this.config.deploymentId,
-                "Availability.ids": this.config.buttonId,
-            },
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version,
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).then((res) => {
-            return res.messages[0].message.results[0].isAvailable || false;
-        }).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
+    private messageHandler = (res: any): void => {
+        if (res) {
+            res.messages.forEach((msg: any) => {
+                switch (msg.type) {
+                    case "ChatEstablished": {
+                        this.isChatEstablished = true;
+                        break;
+                    }
+                    case "ChatMessage": {
+                        this.txtHandler(msg.message.text);
+                        break;
+                    }
+                    case "ChatEnded": {
+                        this.isAbortedMsgLoop = true;
+                        break;
+                    }
+                    // - TODO: Handle more case
+                    case "AgentDisconnect": {
+                        break;
+                    }
+                    case "AgentNotTyping": {
+                        break;
+                    }
+                    case "AgentTyping": {
+                        break;
+                    }
+                    case "ChasitorSessionData": {
+                        break;
+                    }
+                    case "ChatRequestFail": {
+                        break;
+                    }
+                    case "ChatRequestSuccess": {
+                        break;
+                    }
+                    case "ChatTransferred": {
+                        break;
+                    }
+                    case "CustomEvent": {
+                        break;
+                    }
+                    case "NewVisitorBreadcrumb": {
+                        break;
+                    }
+                    case "QueueUpdate": {
+                        break;
+                    }
+                    default: {
+                        logger.info("unhandle message type: %s", msg.type);
+                        break;
+                    }
+                }
+            });
+            this.ack = res.sequence;
+        }
     }
 
-    public setBreadCrumb(breadCrumb: LARequest.Breadcrumb): Promise<any> {
-        const options = {
-            uri: this.url(path.breadCrumb),
-            method: "POST",
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version,
-            },
-            body: breadCrumb,
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    public getVisitor(): Promise<any> {
-        const options = {
-            uri: this.url(path.visitorId),
-            qs: {
-                org_id: this.config.organizationId,
-                deployment_id: this.config.deploymentId,
-            },
-            headers: {
-                "X-LIVEAGENT-API-VERSION": this.config.version,
-            },
-            json: true,
-            proxy: this.config.proxy,
-        };
-        return execute(options).catch((err) => {
-            throw new RequestError(err.statusCode, err.message);
-        });
-    }
-
-    private execute(opt: any): Promise<any> {
-        return execute(opt);
-    }
-
-    private url(cpath: string): string {
-        return this.config.endpointUrl + cpath;
+    private exceptionHandler = (err: Error) => {
+        logger.error("an error occured.", err);
+        throw err;
     }
 }

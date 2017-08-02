@@ -1,4 +1,10 @@
-export class InvalidConfig extends Error {
+export class ClientError extends Error {
+    constructor(msg: string) {
+        super(msg);
+    }
+}
+
+export class InvalidConfig extends ClientError {
     public confName: string;
 
     constructor(confName: string, msg: string) {

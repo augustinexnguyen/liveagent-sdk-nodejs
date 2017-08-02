@@ -6,6 +6,7 @@ export const chasitorNotTyping: string = "Chasitor/ChasitorNotTyping";
 export const chasitorSneakPeek: string = "Chasitor/ChasitorSneakPeek";
 export const chasitorTyping: string = "Chasitor/ChasitorTyping";
 export const chatEnd: string = "Chasitor/ChatEnd";
+export const chatCancel: string = "Chasitor/ChatCancel";
 export const chatMessage: string = "Chasitor/ChatMessage";
 export const customEvent: string = "Chasitor/CustomEvent";
 export const messages: string = "System/Messages";

@@ -11,10 +11,9 @@
   },
   "author": "augustine.x.nguyen",
   "license": "ISC",
-  "repository" :
-  { 
-    "type" : "git",
-    "url" : "https://github.com/augustinexnguyen/liveagent-sdk-nodejs.git"
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/augustinexnguyen/liveagent-sdk-nodejs.git"
   },
   "devDependencies": {
     "del": "^3.0.0",
@@ -30,7 +29,10 @@
   "dependencies": {
     "@types/node": "^8.0.16",
     "@types/request-promise-native": "^1.0.6",
+    "@types/winston": "^2.3.4",
     "request": "^2.81.0",
-    "request-promise-native": "^1.0.4"
+    "request-promise-native": "^1.0.4",
+    "uuid": "^3.1.0",
+    "winston": "^2.3.1"
   }
 }

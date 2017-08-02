@@ -89,13 +89,7 @@ declare namespace LAData {
     }
 }
 declare namespace LARequest {
-    export type Header = {
-        version: string,
-        affinity: string,
-        sessionKey: string,
-        sessionId: string,
-        sequence: string,
-    }
+
     export type Location = {
         type : string,
         description: string,
@@ -143,104 +137,5 @@ declare namespace LARequest {
 
     export type MultiNoun = {
         nouns: Array<LAData.NounWrapper>,
-    }
-}
-declare namespace LAResponse {
-    export type Availability = {
-        results: Array<LAData.Result>,
-    }
-
-    export type ChasitorSessionData = {
-        queuePosition: number,
-        geoLocation: LAData.GeoLocation,
-        url: string,
-        oref: string,
-        postChatUrl: string,
-        sneakPeekEnabled: boolean,
-        chatMessages: Array<LAData.TranscriptEntry>,
-    }
-
-    export type ChasitorIdleTimeoutWarningEvent = {
-        idleTimeoutWarningEvent: string,
-    }
-
-    export type ChatEstablished = {
-        name: string,
-        userId: string,
-        sneakPeekEnabled: boolean,
-        chasitorIdletimeout: any,
-    }
-
-    export type ChatMessage = {
-        name: string,
-        text: string,
-    }
-
-    export type ChatRequestFail = {
-        reason: string,
-        postChatUrl: string,
-    }
-
-    export type ChatRequestSuccess = {
-        queuePosition: number,
-        geoLocation: LAData.GeoLocation,
-        url: string,
-        oref: string,
-        postChatUrl: string,
-        customDetails: Array<LAData.CustomDetail>,
-        visitorId: string,
-    }
-
-    export type ChatTransferred = {
-        name: string,
-        userId: string,
-        sneakPeekEnabled: boolean,
-        chasitorIdletimeout: any,
-
-    }
-
-    export type CustomEvent = {
-        type: string,
-        data: string,
-    }
-
-    export type Messages = {
-        messages: Array<LAData.Message>,
-        sequence: number,
-    }
-
-    export type NewVisitorBreadcrumb = {
-        location: string,
-    }
-
-    export type QueueUpdate = {
-        position: number,
-    }
-
-    export type ResyncSession = {
-        isValid: boolean,
-        key: string,
-        affinityToken: string,
-    }
-
-    export type SessionId = {
-        id: string,
-        key: string,
-        affinityToken: string,
-        clientPollTimeout: number,
-    }
-
-    export type Settings = {
-        pingrate: number,
-        contentServerUrl: string,
-        buttons: Array<LAData.Button>,
-    }
-
-    export type SwitchServer = {
-        newUrl: string,
-    }
-
-    export type VisitorId = {
-        sessionId: string,
     }
 }
